@@ -1,0 +1,88 @@
+from sqlalchemy import Column, Integer, BigInteger, String, Float, Text, DateTime, Enum, SmallInteger
+from sqlalchemy.sql import func
+from database import Base
+
+
+# ============================================
+# 1. Device - Each ESP8266 unit
+# ============================================
+class Device(Base):
+    __tablename__ = "devices"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(String(50), unique=True, nullable=False, index=True)
+    api_key = Column(String(64), unique=True, nullable=False, index=True)
+    bed_number = Column(String(20))
+    ward = Column(String(50))
+    patient_name = Column(String(100))
+    status = Column(Enum("online", "offline"), default="offline")
+    last_seen = Column(DateTime)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ============================================
+# 2. SensorData - Vitals readings (high frequency)
+# ============================================
+class SensorData(Base):
+    __tablename__ = "sensor_data"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    device_id = Column(String(50), nullable=False, index=True)
+    heart_rate = Column(Float)
+    spo2 = Column(Float)
+    bed_status = Column(SmallInteger, default=0)  # 0=empty, 1=occupied
+    timestamp = Column(DateTime, server_default=func.now(), index=True)
+
+
+# ============================================
+# 3. Alert - AI-generated & system alerts
+# ============================================
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(String(50), nullable=False, index=True)
+    alert_type = Column(String(50))
+    severity = Column(Enum("low", "medium", "high", "critical"), default="medium")
+    message = Column(Text)
+    escalation_status = Column(Enum("new", "acknowledged", "resolved"), default="new")
+    timestamp = Column(DateTime, server_default=func.now(), index=True)
+
+
+# ============================================
+# 4. Patient - Patient registry
+# ============================================
+class Patient(Base):
+    __tablename__ = "patients"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    device_id = Column(String(50), index=True)
+    admission_date = Column(DateTime, server_default=func.now())
+    discharge_date = Column(DateTime)
+
+
+# ============================================
+# 5. User - Dashboard authentication
+# ============================================
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), unique=True, nullable=False)
+    password_hash = Column(String(256), nullable=False)
+    role = Column(Enum("admin", "nurse"), default="nurse")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ============================================
+# 6. AuditLog - Activity tracking
+# ============================================
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer)
+    action = Column(String(100))
+    details = Column(Text)
+    timestamp = Column(DateTime, server_default=func.now())

@@ -1,0 +1,289 @@
+1️⃣ Layers Overview
+1. Device Layer (100+ Beds)
+
+Each bed contains:
+
+ESP8266 (NodeMCU)
+
+Pressure sensor (bed occupancy)
+
+MAX30100 (Pulse + SpO2)
+
+Each device:
+
+Has unique device_id
+
+Has unique API key
+
+Sends data every 3–5 seconds via HTTP POST
+
+Sends heartbeat every 10 seconds
+
+2️⃣ Backend Layer (Python – FastAPI)
+
+Single backend server handles:
+
+Device authentication
+
+Data ingestion
+
+Online/offline tracking
+
+AI anomaly detection (LSTM later)
+
+Real-time streaming via WebSockets
+
+3️⃣ Database Layer (MySQL)
+
+Only ONE database.
+
+Tables:
+1. devices
+id (PK)
+device_id (unique)
+api_key
+bed_number
+patient_name
+last_seen
+status (online/offline)
+created_at
+2. sensor_data
+id (PK)
+device_id (FK)
+heart_rate
+spo2
+bed_status (0/1)
+timestamp
+3. alerts
+id
+device_id
+alert_type
+message
+timestamp
+
+That’s it. Simple.
+
+✅ API DESIGN
+Device APIs
+1️⃣ Register Device (from dashboard)
+POST /api/device/register
+
+→ Generates device_id + api_key
+
+2️⃣ Send Sensor Data (ESP8266 uses this)
+POST /api/device/data
+Headers:
+    x-api-key: <device_api_key>
+Body:
+{
+    "device_id": "BED_01",
+    "heart_rate": 82,
+    "spo2": 97,
+    "bed_status": 1
+}
+3️⃣ Heartbeat API (for online status)
+POST /api/device/heartbeat
+
+Updates:
+
+last_seen = now()
+status = online
+
+Background scheduler marks device offline if:
+
+now - last_seen > 20 seconds
+4️⃣ Dashboard APIs
+GET /api/dashboard/devices
+GET /api/dashboard/device/{id}
+GET /api/dashboard/live-data
+GET /api/dashboard/alerts
+✅ REAL-TIME STREAMING
+
+We use:
+
+WebSocket endpoint:
+/ws/live
+
+Flow:
+
+ESP sends data
+
+Backend stores in MySQL
+
+Backend pushes data via WebSocket
+
+React dashboard updates instantly
+
+No polling.
+No refresh.
+Real-time.
+
+✅ SYSTEM FLOW (Simple)
+
+ESP8266
+↓
+POST data
+↓
+FastAPI backend
+↓
+Store in MySQL
+↓
+Check anomaly
+↓
+Send WebSocket event
+↓
+Dashboard updates
+
+✅ FILE STRUCTURE (Python Backend)
+
+Project folder:
+
+hospital_iot/
+│
+├── main.py
+├── config.py
+├── database.py
+│
+├── models/
+│   ├── device_model.py
+│   ├── sensor_model.py
+│   ├── alert_model.py
+│
+├── routes/
+│   ├── device_routes.py
+│   ├── dashboard_routes.py
+│   ├── websocket_routes.py
+│
+├── services/
+│   ├── device_service.py
+│   ├── data_service.py
+│   ├── alert_service.py
+│   ├── ai_service.py
+│
+├── utils/
+│   ├── auth.py
+│   ├── scheduler.py
+│
+├── ai/
+│   ├── lstm_model.py
+│   ├── preprocessing.py
+│
+└── requirements.txt
+
+Total major Python files: ~15–18 files
+
+Clean separation.
+
+✅ ESP8266 CODE (Future Ready)
+
+This is simplified version.
+
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+
+const char* ssid = "YOUR_WIFI";
+const char* password = "YOUR_PASS";
+
+String serverUrl = "http://your-server-ip:8000/api/device/data";
+String apiKey = "YOUR_DEVICE_API_KEY";
+String deviceId = "BED_01";
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting...");
+  }
+
+  Serial.println("Connected");
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+
+    HTTPClient http;
+    WiFiClient client;
+    http.begin(client, serverUrl);
+
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("x-api-key", apiKey);
+
+    int heartRate = random(70, 100);
+    int spo2 = random(95, 100);
+    int bedStatus = random(0, 2);
+
+    String jsonData = "{";
+    jsonData += "\"device_id\":\"" + deviceId + "\",";
+    jsonData += "\"heart_rate\":" + String(heartRate) + ",";
+    jsonData += "\"spo2\":" + String(spo2) + ",";
+    jsonData += "\"bed_status\":" + String(bedStatus);
+    jsonData += "}";
+
+    int httpResponseCode = http.POST(jsonData);
+
+    Serial.println(httpResponseCode);
+    http.end();
+  }
+
+  delay(5000);
+}
+
+Later we replace random values with:
+
+MAX30100 readings
+
+Pressure sensor reading
+
+✅ HOW 100+ DEVICES WILL WORK
+
+Each device has unique API key
+
+Backend uses async FastAPI
+
+MySQL indexed on device_id + timestamp
+
+WebSocket handles multiple clients
+
+Scheduler checks offline devices
+
+This will comfortably handle 100–300 devices on a normal VPS.
+
+✅ AI (Simple Integration)
+
+Inside ai_service.py:
+
+Fetch last 20 readings
+
+Normalize
+
+Run LSTM model
+
+If abnormal:
+
+Insert alert
+
+Push alert via WebSocket
+
+Keep it modular.
+
+✅ FINAL SIMPLE ARCHITECTURE SUMMARY
+
+Device (ESP8266)
+→ HTTP API
+→ FastAPI backend
+→ MySQL
+→ AI check
+→ WebSocket
+→ React Dashboard
+
+No CoAP.
+No InfluxDB.
+No 5G fallback.
+No complexity.
+
+Clean.
+Deployable.
+Hackathon ready.
+Scalable.
