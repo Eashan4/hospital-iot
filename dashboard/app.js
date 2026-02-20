@@ -125,16 +125,24 @@ async function apiPost(endpoint, body) {
 }
 
 // ============================================
-// WebSocket
+// WebSocket & Fallback Polling
 // ============================================
 function connectWS() {
     if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
+
+    // Vercel Serverless Fallback: If WS fails twice, switch to HTTP polling
+    if (state.wsFails >= 2) {
+        console.warn('WebSocket failed multiple times. Falling back to HTTP polling...');
+        startHttpPolling();
+        return;
+    }
 
     try {
         state.ws = new WebSocket(WS_URL);
 
         state.ws.onopen = () => {
             console.log('WebSocket connected');
+            state.wsFails = 0; // Reset fails on success
             clearInterval(state.wsReconnectTimer);
             // Ping every 25s to keep alive
             state.wsPingInterval = setInterval(() => {
@@ -150,24 +158,64 @@ function connectWS() {
         };
 
         state.ws.onclose = () => {
-            console.log('WebSocket disconnected, reconnecting in 3s...');
+            console.log('WebSocket disconnected...');
+            state.wsFails = (state.wsFails || 0) + 1;
             clearInterval(state.wsPingInterval);
             state.wsReconnectTimer = setTimeout(connectWS, 3000);
         };
 
         state.ws.onerror = (err) => {
             console.error('WebSocket error:', err);
+            // Close event will trigger reconnect/fail logic
             state.ws.close();
         };
     } catch (err) {
         console.error('WebSocket connection failed:', err);
+        state.wsFails = (state.wsFails || 0) + 1;
         state.wsReconnectTimer = setTimeout(connectWS, 3000);
     }
+}
+
+let pollingInterval = null;
+async function startHttpPolling() {
+    if (pollingInterval) return;
+    pollingInterval = setInterval(async () => {
+        try {
+            // Fetch latest vitals for all devices
+            const devices = state.devices || [];
+            if (devices.length === 0) return;
+
+            // We just need the latest data. To be perfectly efficient, we could hit a new bulk endpoint, 
+            // but fetching the devices array again works for a fallback.
+            const res = await apiFetch('/api/devices');
+            const data = await res.json();
+
+            // Format data as if it came from WebSocket
+            data.forEach(d => {
+                if (d.latest_vitals) {
+                    handleWSMessage({
+                        type: 'vitals_update',
+                        data: {
+                            device_id: d.device_id,
+                            heart_rate: d.latest_vitals.heart_rate,
+                            spo2: d.latest_vitals.spo2,
+                            bed_status: d.latest_vitals.bed_status,
+                            timestamp: d.latest_vitals.timestamp
+                        }
+                    });
+                }
+            });
+        } catch (e) {
+            console.error("Polling error:", e);
+        }
+    }, 3000); // Poll every 3 seconds
 }
 
 function disconnectWS() {
     clearInterval(state.wsPingInterval);
     clearTimeout(state.wsReconnectTimer);
+    clearInterval(pollingInterval);
+    pollingInterval = null;
     if (state.ws) state.ws.close();
 }
 
