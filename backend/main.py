@@ -272,6 +272,32 @@ if _os.path.isdir(_dashboard_path):
     app.mount("/dashboard", StaticFiles(directory=_dashboard_path, html=True), name="dashboard")
 
 
+@app.get("/api/init_db", tags=["System"])
+async def init_db_endpoint(db: AsyncSession = Depends(get_db)):
+    """Remote database initialization for Serverless environments."""
+    try:
+        # 1. Create tables
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            
+        # 2. Seed admin user
+        result = await db.execute(select(User).limit(1))
+        if not result.scalar_one_or_none():
+            admin = User(
+                username="admin", 
+                password_hash=pwd_context.hash("admin123"),
+                role="admin"
+            )
+            db.add(admin)
+            await db.commit()
+            return {"status": "success", "message": "Database tables created and admin user seeded"}
+            
+        return {"status": "success", "message": "Database tables already exist. Admin user is present."}
+    except Exception as e:
+        logger.error(f"Database init error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database initialization failed: {str(e)}")
+
+
 # ============================================
 # Pydantic Schemas
 # ============================================
