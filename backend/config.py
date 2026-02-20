@@ -7,12 +7,14 @@ load_dotenv()
 # Database
 # ============================================
 DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "3306")
+DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("MYSQL_DATABASE", "hospital_iot")
-DB_USER = os.getenv("MYSQL_USER", "ej")
+DB_USER = os.getenv("MYSQL_USER", "postgres")
 DB_PASS = os.getenv("MYSQL_PASSWORD", "ej")
 
-DATABASE_URL = f"mysql+aiomysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# Fallback to local postgres if DATABASE_URL is not set
+default_db_url = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DATABASE_URL = os.getenv("DATABASE_URL", default_db_url)
 
 # ============================================
 # JWT Authentication
