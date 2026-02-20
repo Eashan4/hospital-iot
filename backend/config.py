@@ -13,8 +13,12 @@ DB_USER = os.getenv("MYSQL_USER", "postgres")
 DB_PASS = os.getenv("MYSQL_PASSWORD", "ej")
 
 # Fallback to local postgres if DATABASE_URL is not set
-default_db_url = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+default_db_url = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 DATABASE_URL = os.getenv("DATABASE_URL", default_db_url)
+
+# Convert asyncpg URLs to standard postgresql URLs for psycopg2
+if DATABASE_URL.startswith("postgresql+asyncpg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
 # ============================================
 # JWT Authentication

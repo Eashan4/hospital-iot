@@ -16,7 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPExcept
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, update, desc
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -28,7 +28,7 @@ from config import (
     HEART_RATE_LOW, HEART_RATE_HIGH, SPO2_CRITICAL, SPO2_WARNING,
     ANOMALY_THRESHOLD, PREDICTION_WINDOW,
 )
-from database import get_db, AsyncSessionLocal, engine, Base
+from database import get_db, SessionLocal, engine, Base
 from models import Device, SensorData, Alert, Patient, User, AuditLog
 
 
@@ -86,10 +86,10 @@ scheduler = AsyncIOScheduler()
 
 async def check_offline_devices():
     """Mark devices as offline if heartbeat not received within timeout."""
-    async with AsyncSessionLocal() as session:
+    with SessionLocal() as session:
         try:
             cutoff = datetime.utcnow() - timedelta(seconds=HEARTBEAT_TIMEOUT)
-            result = await session.execute(
+            result = session.execute(
                 select(Device).where(
                     Device.status == "online",
                     Device.last_seen < cutoff
@@ -125,7 +125,7 @@ async def check_offline_devices():
                 })
                 logger.warning(f"Device {device.device_id} marked OFFLINE")
 
-            await session.commit()
+            session.commit()
         except Exception as e:
             logger.error(f"Offline check error: {e}")
             await session.rollback()
@@ -220,13 +220,13 @@ ai_detector = AnomalyDetector()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup — create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    with engine.begin() as conn:
+        Base.metadata.create_all(conn)
     logger.info("Database tables created")
 
     # Seed default admin user if none exists
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(User).limit(1))
+    with SessionLocal() as session:
+        result = session.execute(select(User).limit(1))
         if not result.scalar_one_or_none():
             admin = User(
                 username="admin",
@@ -234,7 +234,7 @@ async def lifespan(app: FastAPI):
                 role="admin",
             )
             session.add(admin)
-            await session.commit()
+            session.commit()
             logger.info("Default admin user created (admin / admin123)")
 
     scheduler.add_job(check_offline_devices, "interval", seconds=OFFLINE_CHECK_INTERVAL)
@@ -273,15 +273,15 @@ if _os.path.isdir(_dashboard_path):
 
 
 @app.get("/api/init_db", tags=["System"])
-async def init_db_endpoint(db: AsyncSession = Depends(get_db)):
+def init_db_endpoint(db: Session = Depends(get_db)):
     """Remote database initialization for Serverless environments."""
     try:
         # 1. Create tables
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        with engine.begin() as conn:
+            Base.metadata.create_all(conn)
             
         # 2. Seed admin user
-        result = await db.execute(select(User).limit(1))
+        result = db.execute(select(User).limit(1))
         if not result.scalar_one_or_none():
             admin = User(
                 username="admin", 
@@ -289,7 +289,7 @@ async def init_db_endpoint(db: AsyncSession = Depends(get_db)):
                 role="admin"
             )
             db.add(admin)
-            await db.commit()
+            db.commit()
             return {"status": "success", "message": "Database tables created and admin user seeded"}
             
         return {"status": "success", "message": "Database tables already exist. Admin user is present."}
@@ -349,11 +349,11 @@ async def verify_jwt(authorization: str = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
-async def verify_api_key(x_api_key: str = Header(None), db: AsyncSession = Depends(get_db)) -> Device:
+async def verify_api_key(x_api_key: str = Header(None), db: Session = Depends(get_db)) -> Device:
     """Validate device API key from x-api-key header."""
     if not x_api_key:
         raise HTTPException(status_code=401, detail="Missing API key")
-    result = await db.execute(select(Device).where(Device.api_key == x_api_key))
+    result = db.execute(select(Device).where(Device.api_key == x_api_key))
     device = result.scalar_one_or_none()
     if not device:
         logger.warning(f"Invalid API key attempt: {x_api_key[:8]}...")
@@ -365,8 +365,8 @@ async def verify_api_key(x_api_key: str = Header(None), db: AsyncSession = Depen
 # ROUTE: Authentication
 # ============================================
 @app.post("/api/auth/login")
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.username == req.username))
+async def login(req: LoginRequest, db: Session = Depends(get_db)):
+    result = db.execute(select(User).where(User.username == req.username))
     user = result.scalar_one_or_none()
     if not user or not pwd_context.verify(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -377,7 +377,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @app.post("/api/auth/register")
-async def register_user(req: LoginRequest, db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
+async def register_user(req: LoginRequest, db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
     if auth.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     hashed = pwd_context.hash(req.password)
@@ -391,7 +391,7 @@ async def register_user(req: LoginRequest, db: AsyncSession = Depends(get_db), a
 # ROUTE: Device Registration (from dashboard)
 # ============================================
 @app.post("/api/device/register")
-async def register_device(req: DeviceRegisterRequest, db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
+async def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
     api_key = uuid.uuid4().hex + uuid.uuid4().hex[:32]  # 64 char key
 
     # ── Auto-assign block if not provided ──
@@ -400,7 +400,7 @@ async def register_device(req: DeviceRegisterRequest, db: AsyncSession = Depends
 
     if not ward:
         # Find first block with < 6 beds, or create new one
-        all_devices = await db.execute(select(Device))
+        all_devices = db.execute(select(Device))
         all_devs = all_devices.scalars().all()
 
         # Count devices per ward
@@ -426,7 +426,7 @@ async def register_device(req: DeviceRegisterRequest, db: AsyncSession = Depends
 
     if not bed_number:
         # Auto-assign next available bed number in that block
-        block_devices = await db.execute(
+        block_devices = db.execute(
             select(Device).where(Device.ward == ward)
         )
         existing_beds = [d.bed_number for d in block_devices.scalars().all()]
@@ -441,7 +441,7 @@ async def register_device(req: DeviceRegisterRequest, db: AsyncSession = Depends
     device_id = f"BED_{ward}_{bed_number}".upper().replace(" ", "_")
 
     # Check if device_id already exists
-    existing = await db.execute(select(Device).where(Device.device_id == device_id))
+    existing = db.execute(select(Device).where(Device.device_id == device_id))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"Device {device_id} already exists")
 
@@ -473,7 +473,7 @@ async def register_device(req: DeviceRegisterRequest, db: AsyncSession = Depends
 # ROUTE: Device Data Ingestion (from ESP8266)
 # ============================================
 @app.post("/api/device/data")
-async def receive_device_data(req: DeviceDataRequest, db: AsyncSession = Depends(get_db), device: Device = Depends(verify_api_key)):
+async def receive_device_data(req: DeviceDataRequest, db: Session = Depends(get_db), device: Device = Depends(verify_api_key)):
     # Validate device_id matches API key
     if device.device_id != req.device_id:
         raise HTTPException(status_code=403, detail="API key does not match device_id")
@@ -533,7 +533,7 @@ async def receive_device_data(req: DeviceDataRequest, db: AsyncSession = Depends
 # ROUTE: Heartbeat (from ESP8266)
 # ============================================
 @app.post("/api/device/heartbeat")
-async def device_heartbeat(req: HeartbeatRequest, db: AsyncSession = Depends(get_db), device: Device = Depends(verify_api_key)):
+async def device_heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db), device: Device = Depends(verify_api_key)):
     was_offline = device.status == "offline"
     device.status = "online"
     device.last_seen = datetime.utcnow()
@@ -554,8 +554,8 @@ async def device_heartbeat(req: HeartbeatRequest, db: AsyncSession = Depends(get
 # ROUTE: Dashboard — Device List
 # ============================================
 @app.get("/api/dashboard/devices")
-async def get_devices(db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
-    result = await db.execute(select(Device).order_by(Device.ward, Device.bed_number))
+async def get_devices(db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
+    result = db.execute(select(Device).order_by(Device.ward, Device.bed_number))
     devices = result.scalars().all()
     return [
         {
@@ -576,15 +576,15 @@ async def get_devices(db: AsyncSession = Depends(get_db), auth: dict = Depends(v
 # ROUTE: Dashboard — Single Device Detail
 # ============================================
 @app.get("/api/dashboard/device/{device_id}")
-async def get_device_detail(device_id: str, limit: int = Query(100, le=500), db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
+async def get_device_detail(device_id: str, limit: int = Query(100, le=500), db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
     # Device info
-    result = await db.execute(select(Device).where(Device.device_id == device_id))
+    result = db.execute(select(Device).where(Device.device_id == device_id))
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
     # Recent vitals
-    vitals_result = await db.execute(
+    vitals_result = db.execute(
         select(SensorData)
         .where(SensorData.device_id == device_id)
         .order_by(desc(SensorData.timestamp))
@@ -593,7 +593,7 @@ async def get_device_detail(device_id: str, limit: int = Query(100, le=500), db:
     vitals = vitals_result.scalars().all()
 
     # Recent alerts
-    alerts_result = await db.execute(
+    alerts_result = db.execute(
         select(Alert)
         .where(Alert.device_id == device_id)
         .order_by(desc(Alert.timestamp))
@@ -638,23 +638,23 @@ async def get_device_detail(device_id: str, limit: int = Query(100, le=500), db:
 # ROUTE: Dashboard — Stats Overview
 # ============================================
 @app.get("/api/dashboard/stats")
-async def get_stats(db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
+async def get_stats(db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
     # Total devices
-    total = await db.execute(select(func.count(Device.id)))
+    total = db.execute(select(func.count(Device.id)))
     total_devices = total.scalar() or 0
 
     # Online devices
-    online = await db.execute(select(func.count(Device.id)).where(Device.status == "online"))
+    online = db.execute(select(func.count(Device.id)).where(Device.status == "online"))
     online_devices = online.scalar() or 0
 
     # Occupied beds (from latest sensor data per device)
     # Simplified: count devices where last reading had bed_status=1
     occupied = 0
     if total_devices > 0:
-        devices_result = await db.execute(select(Device.device_id))
+        devices_result = db.execute(select(Device.device_id))
         device_ids = [d[0] for d in devices_result.all()]
         for did in device_ids:
-            last_reading = await db.execute(
+            last_reading = db.execute(
                 select(SensorData.bed_status)
                 .where(SensorData.device_id == did)
                 .order_by(desc(SensorData.timestamp))
@@ -665,13 +665,13 @@ async def get_stats(db: AsyncSession = Depends(get_db), auth: dict = Depends(ver
                 occupied += 1
 
     # Active alerts
-    active_alerts = await db.execute(
+    active_alerts = db.execute(
         select(func.count(Alert.id)).where(Alert.escalation_status == "new")
     )
     alert_count = active_alerts.scalar() or 0
 
     # Critical alerts
-    critical = await db.execute(
+    critical = db.execute(
         select(func.count(Alert.id)).where(
             Alert.escalation_status == "new",
             Alert.severity == "critical"
@@ -697,13 +697,13 @@ async def get_stats(db: AsyncSession = Depends(get_db), auth: dict = Depends(ver
 async def get_alerts(
     severity: Optional[str] = None,
     limit: int = Query(50, le=200),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     auth: dict = Depends(verify_jwt),
 ):
     query = select(Alert).order_by(desc(Alert.timestamp)).limit(limit)
     if severity:
         query = query.where(Alert.severity == severity)
-    result = await db.execute(query)
+    result = db.execute(query)
     alerts = result.scalars().all()
     return [
         {
@@ -723,8 +723,8 @@ async def get_alerts(
 # ROUTE: Dashboard — Export CSV
 # ============================================
 @app.get("/api/dashboard/export/{device_id}")
-async def export_vitals_csv(device_id: str, db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
-    result = await db.execute(
+async def export_vitals_csv(device_id: str, db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
+    result = db.execute(
         select(SensorData)
         .where(SensorData.device_id == device_id)
         .order_by(SensorData.timestamp)
@@ -749,8 +749,8 @@ async def export_vitals_csv(device_id: str, db: AsyncSession = Depends(get_db), 
 # ROUTE: Acknowledge Alert
 # ============================================
 @app.put("/api/dashboard/alerts/{alert_id}/acknowledge")
-async def acknowledge_alert(alert_id: int, db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
-    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+async def acknowledge_alert(alert_id: int, db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
+    result = db.execute(select(Alert).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
@@ -762,8 +762,8 @@ async def acknowledge_alert(alert_id: int, db: AsyncSession = Depends(get_db), a
 # ROUTE: Regenerate API Key
 # ============================================
 @app.post("/api/device/{device_id}/regenerate-key")
-async def regenerate_api_key(device_id: str, db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
-    result = await db.execute(select(Device).where(Device.device_id == device_id))
+async def regenerate_api_key(device_id: str, db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
+    result = db.execute(select(Device).where(Device.device_id == device_id))
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -781,14 +781,14 @@ async def regenerate_api_key(device_id: str, db: AsyncSession = Depends(get_db),
 # ROUTE: Delete Device
 # ============================================
 @app.delete("/api/device/{device_id}")
-async def delete_device(device_id: str, db: AsyncSession = Depends(get_db), auth: dict = Depends(verify_jwt)):
+async def delete_device(device_id: str, db: Session = Depends(get_db), auth: dict = Depends(verify_jwt)):
     if auth.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    result = await db.execute(select(Device).where(Device.device_id == device_id))
+    result = db.execute(select(Device).where(Device.device_id == device_id))
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    await db.delete(device)
+    db.delete(device)
     db.add(AuditLog(user_id=int(auth["sub"]), action="device_deleted", details=f"Device {device_id} deleted"))
     return {"message": f"Device {device_id} deleted"}
 

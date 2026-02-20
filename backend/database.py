@@ -1,11 +1,12 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base
 from config import DATABASE_URL
 
 # ============================================
-# Async Engine & Session
+# Synchronous Engine & Session
 # ============================================
-engine = create_async_engine(
+engine = create_engine(
     DATABASE_URL,
     echo=False,
     pool_size=20,
@@ -14,10 +15,10 @@ engine = create_async_engine(
     pool_pre_ping=True,
 )
 
-AsyncSessionLocal = sessionmaker(
+SessionLocal = sessionmaker(
     bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False
 )
 
 Base = declarative_base()
@@ -26,14 +27,14 @@ Base = declarative_base()
 # ============================================
 # Dependency for FastAPI routes
 # ============================================
-async def get_db():
-    """Yield an async DB session, auto-close after request."""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+def get_db():
+    """Yield a DB session, auto-close after request."""
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
