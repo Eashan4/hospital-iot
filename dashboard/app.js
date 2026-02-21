@@ -15,9 +15,9 @@ const WS_URL = API_BASE.replace('http', 'ws') + '/ws/live';
 // State
 // ============================================
 const state = {
-    token: localStorage.getItem('iot_token') || null,
-    username: localStorage.getItem('iot_username') || '',
-    role: localStorage.getItem('iot_role') || '',
+    token: sessionStorage.getItem('iot_token') || null,
+    username: sessionStorage.getItem('iot_username') || '',
+    role: sessionStorage.getItem('iot_role') || '',
     devices: [],
     latestVitals: {},    // device_id -> { heart_rate, spo2, bed_status }
     currentPage: 'overview',
@@ -71,9 +71,9 @@ async function login(username, password) {
         state.token = data.token;
         state.username = data.username;
         state.role = data.role;
-        localStorage.setItem('iot_token', data.token);
-        localStorage.setItem('iot_username', data.username);
-        localStorage.setItem('iot_role', data.role);
+        sessionStorage.setItem('iot_token', data.token);
+        sessionStorage.setItem('iot_username', data.username);
+        sessionStorage.setItem('iot_role', data.role);
         showApp();
     } catch (err) {
         document.getElementById('login-error').textContent = err.message;
@@ -84,9 +84,9 @@ function logout() {
     state.token = null;
     state.username = '';
     state.role = '';
-    localStorage.removeItem('iot_token');
-    localStorage.removeItem('iot_username');
-    localStorage.removeItem('iot_role');
+    sessionStorage.removeItem('iot_token');
+    sessionStorage.removeItem('iot_username');
+    sessionStorage.removeItem('iot_role');
     showLogin();
 }
 
