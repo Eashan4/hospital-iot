@@ -128,7 +128,7 @@ async def check_offline_devices():
             session.commit()
         except Exception as e:
             logger.error(f"Offline check error: {e}")
-            await session.rollback()
+            session.rollback()
 
 
 # ============================================
@@ -383,7 +383,7 @@ async def register_user(req: LoginRequest, db: Session = Depends(get_db), auth: 
     hashed = pwd_context.hash(req.password)
     user = User(username=req.username, password_hash=hashed, role="nurse")
     db.add(user)
-    await db.flush()
+    db.flush()
     return {"message": f"User {req.username} created", "user_id": user.id}
 
 
@@ -454,7 +454,7 @@ async def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_
         status="offline",
     )
     db.add(device)
-    await db.flush()
+    db.flush()
 
     # Audit log
     db.add(AuditLog(user_id=int(auth["sub"]), action="device_registered", details=f"Device {device_id} registered in {ward}"))
@@ -503,7 +503,7 @@ async def receive_device_data(req: DeviceDataRequest, db: Session = Depends(get_
             message=anomaly["message"],
         )
         db.add(alert)
-        await db.flush()
+        db.flush()
 
         # Broadcast alert via WebSocket
         await ws_manager.broadcast({

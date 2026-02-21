@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Float, Text, DateTime, Enum, SmallInteger
+from sqlalchemy import Column, Integer, BigInteger, String, Float, Text, DateTime, SmallInteger
 from sqlalchemy.sql import func
 from database import Base
 
@@ -15,7 +15,7 @@ class Device(Base):
     bed_number = Column(String(20))
     ward = Column(String(50))
     patient_name = Column(String(100))
-    status = Column(Enum("online", "offline", name="device_status_enum"), default="offline")
+    status = Column(String(10), default="offline")
     last_seen = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
 
@@ -43,9 +43,9 @@ class Alert(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_id = Column(String(50), nullable=False, index=True)
     alert_type = Column(String(50))
-    severity = Column(Enum("low", "medium", "high", "critical", name="alert_severity_enum"), default="medium")
+    severity = Column(String(10), default="medium")
     message = Column(Text)
-    escalation_status = Column(Enum("new", "acknowledged", "resolved", name="alert_escalation_enum"), default="new")
+    escalation_status = Column(String(15), default="new")
     timestamp = Column(DateTime, server_default=func.now(), index=True)
 
 
@@ -71,7 +71,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(256), nullable=False)
-    role = Column(Enum("admin", "nurse", name="user_role_enum"), default="nurse")
+    role = Column(String(10), default="nurse")
     created_at = Column(DateTime, server_default=func.now())
 
 

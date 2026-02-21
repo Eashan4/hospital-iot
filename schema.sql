@@ -1,111 +1,112 @@
 -- Hospital Bed Occupancy & Patient Vital Monitoring System
--- MySQL Database Schema
-
-CREATE DATABASE IF NOT EXISTS hospital_iot;
-
-USE hospital_iot;
+-- PostgreSQL Database Schema (Supabase compatible)
 
 -- ============================================
 -- 1. DEVICES - Each physical ESP8266 unit
 -- ============================================
-CREATE TABLE devices (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS devices (
+    id SERIAL PRIMARY KEY,
     device_id VARCHAR(50) UNIQUE NOT NULL,
     api_key VARCHAR(64) UNIQUE NOT NULL,
     bed_number VARCHAR(20),
     ward VARCHAR(50),
     patient_name VARCHAR(100),
-    status ENUM('online', 'offline') DEFAULT 'offline',
-    last_seen DATETIME,
-    created_at DATETIME DEFAULT NOW(),
-    INDEX idx_device_id (device_id),
-    INDEX idx_status (status),
-    INDEX idx_api_key (api_key)
+    status VARCHAR(10) DEFAULT 'offline' CHECK (
+        status IN ('online', 'offline')
+    ),
+    last_seen TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices (device_id);
+
+CREATE INDEX IF NOT EXISTS idx_devices_status ON devices (status);
+
+CREATE INDEX IF NOT EXISTS idx_devices_api_key ON devices (api_key);
 
 -- ============================================
 -- 2. SENSOR_DATA - High-frequency vitals data
 -- ============================================
-CREATE TABLE sensor_data (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS sensor_data (
+    id BIGSERIAL PRIMARY KEY,
     device_id VARCHAR(50) NOT NULL,
-    heart_rate FLOAT,
-    spo2 FLOAT,
-    bed_status TINYINT DEFAULT 0, -- 0=empty, 1=occupied
-    timestamp DATETIME DEFAULT NOW(),
-    INDEX idx_device_ts (device_id, timestamp),
-    INDEX idx_timestamp (timestamp)
+    heart_rate REAL,
+    spo2 REAL,
+    bed_status SMALLINT DEFAULT 0, -- 0=empty, 1=occupied
+    timestamp TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_sensor_device_ts ON sensor_data (device_id, timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_timestamp ON sensor_data (timestamp);
 
 -- ============================================
 -- 3. ALERTS - AI-generated & system alerts
 -- ============================================
-CREATE TABLE alerts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS alerts (
+    id SERIAL PRIMARY KEY,
     device_id VARCHAR(50) NOT NULL,
-    alert_type VARCHAR(50), -- 'low_spo2', 'high_heart_rate', 'anomaly', 'device_offline'
-    severity ENUM(
-        'low',
-        'medium',
-        'high',
-        'critical'
-    ) DEFAULT 'medium',
+    alert_type VARCHAR(50),
+    severity VARCHAR(10) DEFAULT 'medium' CHECK (
+        severity IN (
+            'low',
+            'medium',
+            'high',
+            'critical'
+        )
+    ),
     message TEXT,
-    escalation_status ENUM(
-        'new',
-        'acknowledged',
-        'resolved'
-    ) DEFAULT 'new',
-    timestamp DATETIME DEFAULT NOW(),
-    INDEX idx_device_id (device_id),
-    INDEX idx_severity (severity),
-    INDEX idx_timestamp (timestamp)
+    escalation_status VARCHAR(15) DEFAULT 'new' CHECK (
+        escalation_status IN (
+            'new',
+            'acknowledged',
+            'resolved'
+        )
+    ),
+    timestamp TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_alerts_device_id ON alerts (device_id);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts (severity);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts (timestamp);
 
 -- ============================================
 -- 4. PATIENTS - Patient registry
 -- ============================================
-CREATE TABLE patients (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS patients (
+    id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     device_id VARCHAR(50),
-    admission_date DATETIME DEFAULT NOW(),
-    discharge_date DATETIME,
-    INDEX idx_device_id (device_id)
+    admission_date TIMESTAMP DEFAULT NOW(),
+    discharge_date TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_patients_device_id ON patients (device_id);
 
 -- ============================================
 -- 5. USERS - Dashboard authentication
 -- ============================================
-CREATE TABLE users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(256) NOT NULL,
-    role ENUM('admin', 'nurse') DEFAULT 'nurse',
-    created_at DATETIME DEFAULT NOW()
+    role VARCHAR(10) DEFAULT 'nurse' CHECK (role IN ('admin', 'nurse')),
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- ============================================
 -- 6. AUDIT_LOGS - Activity tracking
 -- ============================================
-CREATE TABLE audit_logs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT,
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER,
     action VARCHAR(100),
     details TEXT,
-    timestamp DATETIME DEFAULT NOW(),
-    INDEX idx_user_id (user_id),
-    INDEX idx_timestamp (timestamp)
+    timestamp TIMESTAMP DEFAULT NOW()
 );
 
--- ============================================
--- Insert default admin user (password: admin123)
--- Hash generated with bcrypt
--- ============================================
-INSERT INTO
-    users (username, password_hash, role)
-VALUES (
-        'admin',
-        '$2b$12$LJ3m4ys3GZfnMQXYGBLqYOQIzGKqVHnJXvGHPqzGqKwFm3KJzXKK6',
-        'admin'
-    );
+CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs (timestamp);

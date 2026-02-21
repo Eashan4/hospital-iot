@@ -4,21 +4,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============================================
-# Database
+# Database (Supabase PostgreSQL)
 # ============================================
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("MYSQL_DATABASE", "hospital_iot")
-DB_USER = os.getenv("MYSQL_USER", "postgres")
-DB_PASS = os.getenv("MYSQL_PASSWORD", "ej")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:password@localhost:5432/hospital_iot"
+)
 
-# Fallback to local postgres if DATABASE_URL is not set
-default_db_url = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-DATABASE_URL = os.getenv("DATABASE_URL", default_db_url)
-
-# Convert asyncpg URLs to standard postgresql URLs for psycopg2
+# Normalize URL schemes for SQLAlchemy compatibility
 if DATABASE_URL.startswith("postgresql+asyncpg://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # ============================================
 # JWT Authentication

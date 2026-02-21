@@ -2,24 +2,23 @@ version: '3.8'
 
 services:
   # ============================================
-  # MySQL Database
+  # PostgreSQL Database
   # ============================================
-  mysql:
-    image: mysql:8.0
-    container_name: hospital_mysql
+  postgres:
+    image: postgres:16-alpine
+    container_name: hospital_postgres
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      POSTGRES_DB: hospital_iot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-hospital_iot_pass}
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - pg_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -36,16 +35,12 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     environment:
-      DB_HOST: mysql
-      DB_PORT: 3306
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-hospital_iot_pass}@postgres:5432/hospital_iot
       JWT_SECRET: ${JWT_SECRET}
       HEARTBEAT_TIMEOUT: ${HEARTBEAT_TIMEOUT:-20}
       OFFLINE_CHECK_INTERVAL: ${OFFLINE_CHECK_INTERVAL:-10}
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
     volumes:
       - ./backend:/app
@@ -66,4 +61,4 @@ services:
       - backend
 
 volumes:
-  mysql_data:
+  pg_data:
