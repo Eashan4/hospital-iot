@@ -3,6 +3,7 @@ Hospital Bed Occupancy & Patient Vital Monitoring System
 FastAPI Backend — All routes, WebSocket, scheduler, AI
 """
 
+import os
 import uuid
 import csv
 import io
@@ -217,32 +218,44 @@ ai_detector = AnomalyDetector()
 # ============================================
 # App Lifespan (startup/shutdown)
 # ============================================
+IS_SERVERLESS = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup — create tables
-    with engine.begin() as conn:
-        Base.metadata.create_all(conn)
-    logger.info("Database tables created")
+    # Startup
+    try:
+        with engine.begin() as conn:
+            Base.metadata.create_all(conn)
+        logger.info("Database tables created")
 
-    # Seed default admin user if none exists
-    with SessionLocal() as session:
-        result = session.execute(select(User).limit(1))
-        if not result.scalar_one_or_none():
-            admin = User(
-                username="admin",
-                password_hash=pwd_context.hash("admin123"),
-                role="admin",
-            )
-            session.add(admin)
-            session.commit()
-            logger.info("Default admin user created (admin / admin123)")
+        # Seed default admin user if none exists
+        with SessionLocal() as session:
+            result = session.execute(select(User).limit(1))
+            if not result.scalar_one_or_none():
+                admin = User(
+                    username="admin",
+                    password_hash=pwd_context.hash("admin123"),
+                    role="admin",
+                )
+                session.add(admin)
+                session.commit()
+                logger.info("Default admin user created (admin / admin123)")
+    except Exception as e:
+        logger.error(f"Startup DB init failed (will use /api/init_db): {e}")
 
-    scheduler.add_job(check_offline_devices, "interval", seconds=OFFLINE_CHECK_INTERVAL)
-    scheduler.start()
+    # Only start scheduler on non-serverless environments
+    if not IS_SERVERLESS:
+        scheduler.add_job(check_offline_devices, "interval", seconds=OFFLINE_CHECK_INTERVAL)
+        scheduler.start()
+        logger.info("Scheduler started")
+
     logger.info("Hospital IoT backend started")
     yield
+
     # Shutdown
-    scheduler.shutdown()
+    if not IS_SERVERLESS and scheduler.running:
+        scheduler.shutdown()
     logger.info("Hospital IoT backend stopped")
 
 
