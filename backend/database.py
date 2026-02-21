@@ -1,3 +1,4 @@
+import ssl
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import declarative_base
@@ -6,12 +7,18 @@ from config import DATABASE_URL
 # ============================================
 # Convert DATABASE_URL for pg8000 driver
 # ============================================
-# pg8000 requires: postgresql+pg8000://user:pass@host:port/db
 db_url = DATABASE_URL
 if db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+pg8000://", 1)
 elif db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+pg8000://", 1)
+
+# ============================================
+# SSL context for Supabase (requires SSL)
+# ============================================
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 # ============================================
 # Synchronous Engine & Session
@@ -23,6 +30,7 @@ engine = create_engine(
     max_overflow=10,
     pool_recycle=300,
     pool_pre_ping=True,
+    connect_args={"ssl_context": ssl_context},
 )
 
 SessionLocal = sessionmaker(
