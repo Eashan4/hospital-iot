@@ -273,26 +273,53 @@ if _os.path.isdir(_dashboard_path):
 
 
 @app.get("/api/init_db", tags=["System"])
-def init_db_endpoint(db: Session = Depends(get_db)):
-    """Remote database initialization for Serverless environments."""
+def init_db_endpoint(reset: bool = False, db: Session = Depends(get_db)):
+    """
+    Remote database initialization for Serverless environments.
+    Use ?reset=true to drop all tables and recreate from scratch.
+    """
     try:
-        # 1. Create tables
+        from sqlalchemy import text
+
+        if reset:
+            # Drop all existing tables and old ENUM types to start fresh
+            with engine.begin() as conn:
+                Base.metadata.drop_all(conn)
+                # Drop old PostgreSQL ENUM types that may conflict
+                for enum_name in [
+                    'device_status_enum', 'alert_severity_enum',
+                    'alert_escalation_enum', 'user_role_enum'
+                ]:
+                    conn.execute(text(f"DROP TYPE IF EXISTS {enum_name} CASCADE"))
+            logger.info("All tables and enum types dropped (reset mode)")
+
+        # Create all tables
         with engine.begin() as conn:
             Base.metadata.create_all(conn)
-            
-        # 2. Seed admin user
+        logger.info("Database tables created/verified")
+
+        # Seed admin user if not exists
         result = db.execute(select(User).limit(1))
         if not result.scalar_one_or_none():
             admin = User(
-                username="admin", 
+                username="admin",
                 password_hash=pwd_context.hash("admin123"),
                 role="admin"
             )
             db.add(admin)
             db.commit()
-            return {"status": "success", "message": "Database tables created and admin user seeded"}
-            
-        return {"status": "success", "message": "Database tables already exist. Admin user is present."}
+            logger.info("Admin user seeded")
+            return {
+                "status": "success",
+                "message": "Database tables created and admin user seeded (admin / admin123)",
+                "reset": reset,
+            }
+
+        return {
+            "status": "success",
+            "message": "Database tables verified. Admin user exists.",
+            "reset": reset,
+        }
     except Exception as e:
         logger.error(f"Database init error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database initialization failed: {str(e)}")
