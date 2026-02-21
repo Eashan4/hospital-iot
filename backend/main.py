@@ -285,6 +285,73 @@ if _os.path.isdir(_dashboard_path):
     app.mount("/dashboard", StaticFiles(directory=_dashboard_path, html=True), name="dashboard")
 
 
+@app.get("/api/debug_db", tags=["System"])
+def debug_db():
+    """Debug endpoint to check database configuration."""
+    from database import db_url
+    import socket
+
+    # Mask password in URL for display
+    masked = db_url
+    try:
+        # Extract and mask password
+        if "@" in masked:
+            prefix = masked.split("://")[0] + "://"
+            rest = masked.split("://")[1]
+            user_pass = rest.split("@")[0]
+            host_part = rest.split("@")[1]
+            if ":" in user_pass:
+                user = user_pass.split(":")[0]
+                masked = f"{prefix}{user}:****@{host_part}"
+    except Exception:
+        masked = "could not parse"
+
+    # Extract host and port for connectivity test
+    host = "unknown"
+    port = 5432
+    try:
+        host_part = db_url.split("@")[1].split("/")[0]
+        if ":" in host_part:
+            host = host_part.split(":")[0]
+            port = int(host_part.split(":")[1])
+        else:
+            host = host_part
+    except Exception:
+        pass
+
+    # Test DNS resolution
+    dns_ok = False
+    ip = "unknown"
+    try:
+        ip = socket.gethostbyname(host)
+        dns_ok = True
+    except Exception as e:
+        ip = str(e)
+
+    # Test TCP connectivity
+    tcp_ok = False
+    tcp_error = ""
+    if dns_ok:
+        try:
+            sock = socket.create_connection((host, port), timeout=5)
+            sock.close()
+            tcp_ok = True
+        except Exception as e:
+            tcp_error = str(e)
+
+    return {
+        "database_url_masked": masked,
+        "host": host,
+        "port": port,
+        "dns_resolved": dns_ok,
+        "ip_address": ip,
+        "tcp_connection": tcp_ok,
+        "tcp_error": tcp_error or None,
+        "env_DATABASE_URL_set": bool(os.getenv("DATABASE_URL")),
+        "vercel_env": bool(os.getenv("VERCEL")),
+    }
+
+
 @app.get("/api/init_db", tags=["System"])
 def init_db_endpoint(reset: bool = False, db: Session = Depends(get_db)):
     """
