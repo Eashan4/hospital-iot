@@ -11,9 +11,7 @@ DATABASE_URL = os.getenv(
     "postgresql://postgres:password@localhost:5432/hospital_iot"
 )
 
-# Normalize URL schemes for SQLAlchemy compatibility
-if DATABASE_URL.startswith("postgresql+asyncpg://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+# Normalize postgres:// to postgresql:// (some providers use the shorter form)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
